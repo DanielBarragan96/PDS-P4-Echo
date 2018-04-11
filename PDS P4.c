@@ -44,6 +44,14 @@
 #include "task.h"
 #include "semphr.h"
 
+#include "peripherals.h"
+#include "pin_mux.h"
+#include "MK64F12.h"
+#include "fsl_port.h"
+#include "fsl_gpio.h"
+
+#include "Botones.h"
+
 /*******************************************************************************
  * Definitions
  ******************************************************************************/
@@ -58,6 +66,52 @@
 
 #define VREF_BRD 3.300
 #define SE_12BIT 4096.0
+
+/*! This definition is as a general definitions to bits in regiter or pins in the microcontroller.*/
+typedef enum {BIT0,  /*!< Bit 0 */
+              BIT1,  /*!< Bit 1 */
+              BIT2,  /*!< Bit 2 */
+              BIT3,  /*!< Bit 3 */
+              BIT4,  /*!< Bit 4 */
+              BIT5,  /*!< Bit 5 */
+              BIT6,  /*!< Bit 6 */
+              BIT7,  /*!< Bit 7 */
+              BIT8,  /*!< Bit 8 */
+              BIT9,  /*!< Bit 9 */
+              BIT10, /*!< Bit 10 */
+              BIT11, /*!< Bit 11 */
+              BIT12, /*!< Bit 12 */
+              BIT13, /*!< Bit 13 */
+              BIT14, /*!< Bit 14 */
+              BIT15, /*!< Bit 15 */
+              BIT16, /*!< Bit 16 */
+              BIT17, /*!< Bit 17 */
+              BIT18, /*!< Bit 18 */
+              BIT19, /*!< Bit 19 */
+              BIT20, /*!< Bit 20 */
+              BIT21, /*!< Bit 21 */
+              BIT22, /*!< Bit 22 */
+              BIT23,/*!< Bit 23 */
+              BIT24, /*!< Bit 24 */
+              BIT25, /*!< Bit 25 */
+              BIT26, /*!< Bit 26 */
+              BIT27, /*!< Bit 27 */
+              BIT28, /*!< Bit 28 */
+              BIT29, /*!< Bit 29 */
+              BIT30, /*!< Bit 30 */
+              BIT31  /*!< Bit 31 */
+            } BitsType;
+
+typedef union
+        {
+            uint8_t allBits;
+            struct{
+                uint8_t bit0 :1;
+                uint8_t bit1 :1;
+                uint8_t bit2 :1;
+                uint8_t bit3 :1;
+            }bitField;
+        } Binario;
 
 /*******************************************************************************
  * Prototypes
@@ -142,6 +196,39 @@ void DEMO_ADC16_IRQ_HANDLER_FUNC(void)
 #endif
 }
 
+void inicializacionBotones ()
+{
+    /*Se inicializa cada uno de los pines a utilizar por los botones*/
+    CLOCK_EnableClock (kCLOCK_PortC);
+
+    port_pin_config_t config_button =
+    { kPORT_PullDown, kPORT_FastSlewRate, kPORT_PassiveFilterDisable,
+            kPORT_OpenDrainDisable, kPORT_LowDriveStrength, kPORT_MuxAsGpio,
+            kPORT_UnlockRegister };
+
+    gpio_pin_config_t button_config_gpio =
+    { kGPIO_DigitalInput, 1 };
+
+    PORT_SetPinConfig (PORTC, BIT5, &config_button);
+    PORT_SetPinConfig (PORTC, BIT7, &config_button);
+    PORT_SetPinConfig (PORTC, BIT0, &config_button);
+    PORT_SetPinConfig (PORTC, BIT9, &config_button);
+    GPIO_PinInit (GPIOC, BIT5, &button_config_gpio);
+    GPIO_PinInit (GPIOC, BIT7, &button_config_gpio);
+    GPIO_PinInit (GPIOC, BIT0, &button_config_gpio);
+    GPIO_PinInit (GPIOC, BIT9, &button_config_gpio);
+
+    /* Init input switch GPIO. */
+    PORT_SetPinInterruptConfig (PORTC, BIT5, kPORT_InterruptRisingEdge);
+    PORT_SetPinInterruptConfig (PORTC, BIT7, kPORT_InterruptRisingEdge);
+    PORT_SetPinInterruptConfig (PORTC, BIT0, kPORT_InterruptRisingEdge);
+    PORT_SetPinInterruptConfig (PORTC, BIT9, kPORT_InterruptRisingEdge);
+    /*Se habilitan sus interrupciones*/
+    NVIC_EnableIRQ (PORTC_IRQn);
+    NVIC_SetPriority (PORTC_IRQn, 3);
+}
+
+
 #define SAMPLE_SIZE 20000
 
 static SemaphoreHandle_t sem;
@@ -150,6 +237,66 @@ uint16_t adc_read[SAMPLE_SIZE] = {0};
 uint16_t dac_out[SAMPLE_SIZE] = {0};
 uint16_t dac_out_2[SAMPLE_SIZE] = {0};
 
+volatile static float alpha = 0.5;
+volatile static uint16_t time_delay = 10000;
+
+static volatile Butons valorBoton;
+
+void PORTC_IRQHandler (void)
+{
+    Binario numero = { 0 };
+
+    /*Se leen los pines y se guardan en la estructura*/
+    numero.bitField.bit0 = GPIO_PinRead (GPIOC, BIT5); //B0
+    numero.bitField.bit1 = GPIO_PinRead (GPIOC, BIT7); //B1
+    numero.bitField.bit2 = GPIO_PinRead (GPIOC, BIT0); //B2
+    numero.bitField.bit3 = GPIO_PinRead (GPIOC, BIT9); //B2
+
+    uint32_t x = numero.allBits;
+
+    /*Dependiendo del botón, la funcion regresará 0,1,2,3,4 or 5*/
+    if (BOTON_B0_MASK & x)
+    {
+        valorBoton = BUTTON_0;
+        time_delay += 2000;
+        if(SAMPLE_SIZE <= time_delay)
+            time_delay = SAMPLE_SIZE;
+    }
+    else if (BOTON_B1_MASK & x)
+    {
+        time_delay -= 2000;
+        if((0 > time_delay) || (SAMPLE_SIZE <= time_delay))
+            time_delay = 0;
+        valorBoton = BUTTON_1;
+    }
+    else if (BOTON_B2_MASK & x)
+    {
+        alpha += 0.100000;
+        if(1.1 < alpha)
+            alpha = 1;
+        valorBoton = BUTTON_2;
+    }
+    else if (BOTON_B3_MASK & x)
+    {
+        alpha -= 0.1;
+        if((1.1 <= alpha) || (0 > alpha))
+            alpha = 0;
+        valorBoton = BUTTON_3;
+    }
+    else
+    {
+        valorBoton = NO_BUTTON;
+    }
+
+    PORT_ClearPinsInterruptFlags (PORTC, 1 << (BIT5)); //clear irq
+    PORT_ClearPinsInterruptFlags (PORTC, 1 << (BIT7)); //clear irq
+    PORT_ClearPinsInterruptFlags (PORTC, 1 << (BIT0)); //clear irq
+    PORT_ClearPinsInterruptFlags (PORTC, 1 << (BIT9)); //clear irq
+
+    uint32_t bits_irq = PORT_GetPinsInterruptFlags (PORTC);
+
+    return;
+}
 
 void adc_task()
 {
@@ -182,10 +329,19 @@ void dac_task()
     while (1)
     {
         xSemaphoreTake(sem, portMAX_DELAY);
-        for(uint16_t i = 0; SAMPLE_SIZE > i; i++)
+        for(uint16_t i = 0; (SAMPLE_SIZE) > i; i++)
         {
-            uint16_t val = (uint16_t) dac_out[i] + (0.5*dac_out_2[i]);
-            DAC_SetBufferValue(DEMO_DAC_BASEADDR, 0U, val);
+            uint32_t  val = (uint32_t) dac_out[i];
+            if(time_delay >= i)
+            {
+                val += alpha*dac_out_2[i];
+            }
+            else
+            {
+                uint8_t uy = 0;
+                uy++;
+            }
+            DAC_SetBufferValue(DEMO_DAC_BASEADDR, 0U,(uint32_t ) (val/2));
             vTaskDelay(pdMS_TO_TICKS(1));
         }
     }
@@ -195,7 +351,6 @@ void init_task()
 {
     vTaskDelete(NULL);
 }
-
 
 /*!
  * @brief Main function
@@ -208,13 +363,14 @@ int main(void)
     BOARD_InitDebugConsole ();
     EnableIRQ(DEMO_ADC16_IRQn);
     DAC_ADC_Init();
+    inicializacionBotones ();
 
     sem = xSemaphoreCreateBinary();
     xSemaphoreTake(sem, pdMS_TO_TICKS(1));
 
-    xTaskCreate (adc_task, "ADC", 110, NULL, configMAX_PRIORITIES - 2,
+    xTaskCreate (adc_task, "ADC", 110, NULL, configMAX_PRIORITIES - 1,
                NULL);
-    xTaskCreate (dac_task, "DAC", 110, NULL, configMAX_PRIORITIES - 2,
+    xTaskCreate (dac_task, "DAC", 110, NULL, configMAX_PRIORITIES - 1,
                NULL);
 
    vTaskStartScheduler ();
