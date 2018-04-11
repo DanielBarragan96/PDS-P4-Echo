@@ -148,6 +148,7 @@ static SemaphoreHandle_t sem;
 
 uint16_t adc_read[SAMPLE_SIZE] = {0};
 uint16_t dac_out[SAMPLE_SIZE] = {0};
+uint16_t dac_out_2[SAMPLE_SIZE] = {0};
 
 
 void adc_task()
@@ -167,6 +168,11 @@ void adc_task()
                 adc_read[i] = (uint16_t) (DAC_1_0_VOLTS*voltRead);
                 vTaskDelay(pdMS_TO_TICKS(1));
             }
+            for(uint16_t i = 0; SAMPLE_SIZE > i; i++)
+            {
+                dac_out_2[i] = dac_out[i];
+                dac_out[i] = adc_read[i];
+            }
             xSemaphoreGive(sem);
         }
 }
@@ -178,7 +184,8 @@ void dac_task()
         xSemaphoreTake(sem, portMAX_DELAY);
         for(uint16_t i = 0; SAMPLE_SIZE > i; i++)
         {
-            DAC_SetBufferValue(DEMO_DAC_BASEADDR, 0U, adc_read[i]);
+            uint16_t val = (uint16_t) dac_out[i] + (0.5*dac_out_2[i]);
+            DAC_SetBufferValue(DEMO_DAC_BASEADDR, 0U, val);
             vTaskDelay(pdMS_TO_TICKS(1));
         }
     }
